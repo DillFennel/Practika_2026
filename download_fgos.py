@@ -20,7 +20,6 @@ def parse_fgos_ugsn(ugsn_url):
     # Ищем все ссылки на PDF на странице УГСН
     for a in soup.find_all('a', href=True):
         href = a['href']
-        # Убираем проверку на .pdf — достаточно наличия /fgosvo/downloads
         if '/fgosvo/downloads' in href:
             pdf_link = urljoin('https://fgosvo.ru', href)
             parsed = urlparse(pdf_link)
@@ -29,12 +28,10 @@ def parse_fgos_ugsn(ugsn_url):
             decoded = unquote(f_value)
             filename = decoded.split('/')[-1]
             code_match = re.search(r'(\d{6})', filename)
-            code = code_match.group(1)  # '090403'
+            code = code_match.group(1)
             formatted_code = f"{code[:2]}.{code[2:4]}.{code[4:6]}"
-            
-            # print(f"Найдено направление: {formatted_code}")
-            # print(f"  Ссылка на PDF: {pdf_link}")
-            results.append((code, pdf_link))
+        
+            results.append((formatted_code, pdf_link))
 
             time.sleep(0.5)
 
@@ -47,7 +44,6 @@ def download_pdf(pdf_url, output_dir='pdfs'):
     
     # Извлекаем имя файла из URL
     filename = pdf_url.split('f=')[-1].split('&')[0]
-    # Декодируем URL-кодировку (например, %2F → /)
     from urllib.parse import unquote
     filename = unquote(filename).split('/')[-1]
     
@@ -89,7 +85,7 @@ if __name__ == '__main__':
         time.sleep(1)
 
     # Целевые коды направлений (магистратура)
-    target_direction_codes = ['020403', '090401', '090402', '090403', '090404']
+    target_direction_codes = ['02.04.03', '09.04.01', '09.04.02', '09.04.03', '09.04.04']
 
     all_competencies = {}
     for url in target_urls:
