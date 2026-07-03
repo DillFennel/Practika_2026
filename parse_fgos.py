@@ -3,55 +3,51 @@ import re
 import csv
 import pdfplumber
 
+def clean_description(desc):
+    # Удаляем начальные и конечные мусорные символы
+    desc = re.sub(r'^[\s"\'\(\);]+', '', desc)
+    desc = re.sub(r'[\s"\'\(\);]+$', '', desc)
+    
+    # Если есть двоеточие и после него начинается с ключевого слова,
+    # удаляем часть до двоеточия (заголовок вида "проектная деятельность:")
+    match = re.match(r'^([^:]+деятельность:|[^:]+деятельности:)\s*(.+)', desc)
+    if match:
+        after = match.group(2).strip()
+        # Проверяем, что после двоеточия идёт слово, типичное для начала компетенции
+        if re.match(r'^(способностью|владением|готовностью|умением|знанием|пониманием|применением|навыками|культурой)', after, re.IGNORECASE):
+            desc = after
+        else:
+            # Если после двоеточия не ключевое слово, оставляем как есть
+            pass
+    
+    # Убираем множественные пробелы
+    desc = re.sub(r'\s+', ' ', desc)
+    return desc
+
 def extract_competencies_from_text(text):
-    """Извлекает компетенции из текста, возвращает список словарей {'code': ..., 'description': ...}."""
     competencies = []
+    code_pattern = re.compile(r'(УК-\d+|ОПК-\d+|ПК-\d+(?:\.\d+)?)')
+    matches = list(code_pattern.finditer(text))
     
-    # 1. Паттерн: код в начале строки (УК-1, ОПК-2, ПК-1.1)
-    pattern1 = re.compile(r'(УК-\d+|ОПК-\d+|ПК-\d+(?:\.\d+)?)\s+(.+?)(?=\s+(?:УК-\d+|ОПК-\d+|ПК-\d+(?:\.\d+)?)|\Z)', re.DOTALL)
-    for code, desc in pattern1.findall(text):
-        desc = ' '.join(desc.split())
-        if code and desc:
-            competencies.append({'code': code.strip(), 'description': desc.strip()})
+    for i, match in enumerate(matches):
+        code = match.group(1)
+        start = match.end()
+        end = matches[i+1].start() if i+1 < len(matches) else len(text)
+        
+        raw_desc = text[start:end].strip()
+        raw_desc = re.sub(r'\s+', ' ', raw_desc)
+        
+        # Пропускаем, если raw_desc содержит явный мусор (номера разделов, таблицы, ссылки)
+        if re.search(r'(5\.\d+\.|6\.\d+\.|7\.\d+\.|Таблица|КонсультантПлюс|www\.consultant\.ru)', raw_desc):
+            continue
+        
+        clean_desc = clean_description(raw_desc)
+        if clean_desc and len(clean_desc) > 10:  # отсекаем слишком короткие
+            competencies.append({'code': code, 'description': clean_desc})
     
-    # 2. Паттерн: код в скобках после описания (например, "... (ОК-1)")
-    pattern2 = re.compile(r'(.+?)\s*\(\s*(УК-\d+|ОПК-\d+|ПК-\d+(?:\.\d+)?)\s*\)[;,.]?', re.UNICODE)
-    for desc, code in pattern2.findall(text):
-        desc = ' '.join(desc.split())
-        if code and desc:
-            competencies.append({'code': code.strip(), 'description': desc.strip()})
-    
-    # 3. Если ничего не нашли, пробуем построчный перебор (оба варианта)
-    if not competencies:
-        lines = text.split('\n')
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
-            # а) код в начале
-            m = re.match(r'(УК-\d+|ОПК-\d+|ПК-\d+(?:\.\d+)?)\s+(.+)', line)
-            if m:
-                competencies.append({'code': m.group(1).strip(), 'description': m.group(2).strip()})
-                continue
-            # б) код в скобках в конце
-            m2 = re.search(r'\((\s*УК-\d+\s*|\s*ОПК-\d+\s*|\s*ПК-\d+(?:\.\d+)?\s*)\)\s*[;,.]?$', line)
-            if m2:
-                code = m2.group(1).strip()
-                desc = line[:m2.start()].strip()
-                if desc:
-                    competencies.append({'code': code, 'description': desc})
-    
-    # Удаляем возможные дубликаты (по коду)
-    seen = set()
-    unique = []
-    for comp in competencies:
-        if comp['code'] not in seen:
-            seen.add(comp['code'])
-            unique.append(comp)
-    return unique
+    return competencies
 
 def extract_from_pdf(pdf_path):
-    """Извлекает полный текст из PDF, возвращает строку."""
     try:
         with pdfplumber.open(pdf_path) as pdf:
             full_text = ''
@@ -74,7 +70,6 @@ for filename in os.listdir(pdf_dir):
         continue
     pdf_path = os.path.join(pdf_dir, filename)
     
-    # Извлекаем код направления из имени файла (6 цифр)
     code_match = re.search(r'(\d{6})', filename)
     if code_match:
         raw = code_match.group(1)
@@ -85,27 +80,21 @@ for filename in os.listdir(pdf_dir):
     print(f"\nОбработка {direction_code} из {filename}...")
     full_text = extract_from_pdf(pdf_path)
     
-    # Отладочный вывод первых 500 символов для первого файла (по желанию)
-    if filename == os.listdir(pdf_dir)[0]:
-        print("--- Отладочный текст (первые 500 символов) ---")
-        print(full_text[:500])
-        print("--- Конец отладки ---")
+    # Проверка, что текст извлечён
+    if len(full_text.strip()) < 100:
+        print(f"  ВНИМАНИЕ: текст очень короткий ({len(full_text)} символов), возможно, PDF является скан-копией.")
     
     comps = extract_competencies_from_text(full_text)
     print(f"  Найдено {len(comps)} компетенций")
     
     for comp in comps:
-        # Проверяем, что comp — словарь с нужными ключами
         if isinstance(comp, dict) and 'code' in comp and 'description' in comp:
             all_data.append({
                 'direction': direction_code,
                 'code': comp['code'],
                 'description': comp['description']
             })
-        else:
-            print(f"  ВНИМАНИЕ: неверный формат компетенции: {comp} (тип {type(comp)})")
 
-# Сохраняем результат
 with open(output_csv, 'w', newline='', encoding='utf-8') as f:
     writer = csv.DictWriter(f, fieldnames=['direction', 'code', 'description'])
     writer.writeheader()
