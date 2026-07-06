@@ -10,7 +10,7 @@ DB_PARAMS = {
     'port': 5432
 }
 
-df = pd.read_csv('all_competencies.csv')
+df = pd.read_csv('all_competencies_3.csv')
 
 conn = psycopg2.connect(**DB_PARAMS)
 cur = conn.cursor()
@@ -57,7 +57,7 @@ print("Таблицы созданы")
 
 # --- Заполнение Sources (справочник) ---
 sources = {
-    'ФГОС': ('ФГОС ВО 3++', 'ФГОС', 'Федеральный государственный образовательный стандарт высшего образования'),
+    'ФГОС': ('ФГОС ВО', 'ФГОС', 'Федеральный государственный образовательный стандарт высшего образования'),
     'Профстандарт': ('Профессиональные стандарты', 'Профстандарт', 'Профессиональные стандарты ИТ-сферы'),
     'Вакансия': ('SuperJob', 'Вакансия', 'Вакансии с SuperJob')
 }
@@ -75,13 +75,13 @@ source_map = {row[1]: row[0] for row in cur.fetchall()}
 print("Sources:", source_map)
 
 # --- Загрузка Competencies (уникальные по code) ---
-unique_comp = df[['code', 'category', 'description']].drop_duplicates(subset=['code'])
+unique_comp = df[['code', 'category_group', 'description']].drop_duplicates(subset=['code'])
 unique_comp = unique_comp[unique_comp['code'].notna() & (unique_comp['code'] != '')]
 
 insert_comp = []
 for _, row in unique_comp.iterrows():
     code = row['code']
-    category = row['category'] if pd.notna(row['category']) else ''
+    category = row['category_group'] if pd.notna(row['category_group']) else ''
     description = row['description'] if pd.notna(row['description']) else ''
     insert_comp.append((code, code, description, category))
 
